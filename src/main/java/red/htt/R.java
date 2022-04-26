@@ -26,4 +26,5 @@ public interface R {
     String COVER = "cover";
     String TOC = "toc";
     String NAME = "name";
+    String CALIBRE_TITLE_SORT = "calibre:title_sort";
 }

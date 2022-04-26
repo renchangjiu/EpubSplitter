@@ -274,10 +274,19 @@ public class Shana {
         return res;
     }
 
+    /**
+     * 修改书名
+     */
     private void modifyBookName() {
-        Element eleTitle = this.currOpfDoc.getRootElement().element(R.METADATA).element(R.TITLE);
-        // 修改书名
+        Element metadata = this.currOpfDoc.getRootElement().element(R.METADATA);
+        Element eleTitle = metadata.element(R.TITLE);
         eleTitle.setText(this.currBookName);
+        List<Element> meta = metadata.elements(R.META);
+        for (Element ele : meta) {
+            if (ele.attributeValue(R.NAME).equals(R.CALIBRE_TITLE_SORT)) {
+                ele.addAttribute(R.CONTENT, this.currBookName);
+            }
+        }
     }
 
     private static final Pattern IMG_PTN = Pattern.compile("<img.*?src=\"(.*?)\".*?/>");
