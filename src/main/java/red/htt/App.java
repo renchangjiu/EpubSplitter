@@ -27,7 +27,7 @@ public class App {
         opts.addOption(Option.builder("o")
                 .longOpt("outputDir")
                 .numberOfArgs(1)
-                .desc("specify the output directory, default: current directory")
+                .desc("specify the output directory, default: directory of original epub")
                 .build());
 
         opts.addOption(Option.builder("c")
@@ -62,10 +62,13 @@ public class App {
             file = new File(Commons.getCurrentDir(), path);
         }
 
-        String out = cli.getOptionValue("o");
-        File outputDir = new File(out);
-        if (Commons.isRelativePath(out)) {
-            outputDir = new File(Commons.getCurrentDir(), out);
+        File outputDir = new File(file.getParentFile().getAbsolutePath());
+
+        if (cli.hasOption("o")) {
+            String out = cli.getOptionValue("o");
+            if (Commons.isRelativePath(out)) {
+                outputDir = new File(Commons.getCurrentDir(), out);
+            }
         }
 
         boolean contains1stLevelCatalog = cli.hasOption("c");
@@ -75,7 +78,7 @@ public class App {
         try {
             app.doo();
         } catch (RuntimeException e) {
-            System.out.println(e.getMessage());
+            e.printStackTrace();
         }
     }
 

@@ -9,7 +9,9 @@ import org.dom4j.Document;
 import org.dom4j.DocumentException;
 import org.dom4j.Element;
 import org.dom4j.io.SAXReader;
+import org.jsoup.Jsoup;
 import red.htt.util.Files;
+import red.htt.util.Jsoups;
 import red.htt.util.Nullable;
 import red.htt.util.Strings;
 
@@ -44,7 +46,12 @@ public class Shana {
      * toc.ncx
      */
     private File ncx;
-
+    private Document opfDoc;
+    private Document ncxDoc;
+    /**
+     * 在 opf 文件中, itemId 到 href 的映射关系
+     */
+    private Map<String, String> id2href;
 
     private String currBookName;
 
@@ -63,6 +70,8 @@ public class Shana {
 
     private Document currOpfDoc;
     private Document currNcxDoc;
+
+    private List<Element> bookPoints;
 
     /**
      * @param epubFile                epub file full path
@@ -88,12 +97,17 @@ public class Shana {
         this.rootDir = extractEpub(this.epubFile, this.outputDir);
         this.opf = findOpf(this.rootDir);
         this.ncx = findNcx(this.opf);
-
-        List<Element> navPoints = this.getNewBookPoints();
+        this.opfDoc = new SAXReader().read(this.opf);
+        this.ncxDoc = new SAXReader().read(this.ncx);
+        if (!this.opf.getParentFile().equals(this.ncx.getParentFile())) {
+            throw new RuntimeException("opf文件与ncx文件不在同一目录下, 需要修改, 但没做.");
+        }
+        this.id2href = getIdHrefMap(this.opfDoc);
+        this.bookPoints = this.getNewBookPoints();
         int i = 0;
-        for (Element point : navPoints) {
+        for (Element point : this.bookPoints) {
             this.doOneBook(point);
-            System.out.printf("progress:  %d/%d\n\n", ++i, navPoints.size());
+            System.out.printf("progress:  %d/%d%n%n", ++i, this.bookPoints.size());
         }
         Files.deleteDirectory(this.rootDir);
     }
@@ -105,7 +119,7 @@ public class Shana {
         System.out.printf("正在解析目录, 指定的目录提取层级为: %d%n", this.catalogLevel);
         List<Element> res = new ArrayList<>();
         List<String> names = new ArrayList<>();
-        Element navMap = new SAXReader().read(this.ncx).getRootElement().element(R.NAV_MAP);
+        Element navMap = this.ncxDoc.getRootElement().element(R.NAV_MAP);
 
         LinkedList<Element> queue = new LinkedList<>(navMap.elements(R.NAV_POINT));
         int level = 0;
@@ -132,7 +146,7 @@ public class Shana {
      * 开始操作
      */
     private void doOneBook(Element ncxPoint) throws IOException, DocumentException {
-        // 创建新书的目录, 并复制必要的文件
+        // 创建新书的目录, 并复制必要的文件(opf, ncx...etc)
         this.currBookName = getNewBookName(ncxPoint);
         this.currRootDir = new File(this.rootDir.getParentFile(), this.currBookName);
 
@@ -144,7 +158,10 @@ public class Shana {
         Files.copyFile(this.opf, this.currOpf);
         Files.copyFile(this.ncx, this.currNcx);
 
-        this.currCover = getCoverFile(this.currOpf).orElse(null);
+        this.currOpfDoc = new SAXReader().read(this.currOpf);
+        this.currNcxDoc = new SAXReader().read(this.currNcx);
+
+        this.currCover = getCoverFile(this.currOpfDoc, this.currOpf).orElse(null);
         String childPath = "META-INF/container.xml";
         File file = new File(this.rootDir, childPath);
         Files.copyFile(file, new File(this.currRootDir, childPath));
@@ -154,9 +171,6 @@ public class Shana {
             Files.copyFile(coverSrc, this.currCover);
         }
 
-        this.currOpfDoc = new SAXReader().read(this.currOpf);
-        this.currNcxDoc = new SAXReader().read(this.currNcx);
-
         Element end = this.findLastNavPoint(ncxPoint);
         Set<File> files = this.getUsedTextFiles(ncxPoint, end);
         this.copyFile(files);
@@ -165,12 +179,14 @@ public class Shana {
 
         this.modifyNcx(ncxPoint);
         this.modifyBookName();
+        this.cutExcessHtml();
         this.tryToSetCover(ncxPoint);
         Files.write(this.currOpf, this.currOpfDoc.asXML(), StandardCharsets.UTF_8);
         Files.write(this.currNcx, this.currNcxDoc.asXML(), StandardCharsets.UTF_8);
         this.compress();
         Files.deleteDirectory(this.currRootDir);
     }
+
 
     /**
      * 修改ncx文件, 重构目录树
@@ -232,18 +248,13 @@ public class Shana {
         Set<File> res = new HashSet<>();
         Element root = this.currOpfDoc.getRootElement();
         Element eleManifest = root.element(R.MANIFEST);
-        // id 对 href 的映射
-        Map<String, String> idHref = eleManifest.elements(R.ITEM)
-                .stream()
-                .collect(Collectors.toMap(v -> v.attributeValue(R.ID), v -> v.attributeValue(R.HREF)));
 
         Pair<String, String> pari1 = getTextAndSrc(start);
         Pair<String, String> pari2 = getTextAndSrc(end);
-        String idStart = this.findIdByHref(pari1.getRight(), idHref);
-        String idEnd = this.findIdByHref(pari2.getRight(), idHref);
+        String idStart = this.findIdByHref(pari1.getRight());
+        String idEnd = this.findIdByHref(pari2.getRight());
         Element eleSpine = root.element(R.SPINE);
 
-        // TODO: 应该可以用双指针优化
         // 删掉之前的
         List<Element> itemRefs = eleSpine.elements(R.ITEMREF);
         for (Element ref : itemRefs) {
@@ -268,7 +279,7 @@ public class Shana {
         itemRefs = eleSpine.elements(R.ITEMREF);
         for (Element ref : itemRefs) {
             String id = ref.attributeValue(R.IDREF);
-            String href = idHref.get(id);
+            String href = this.id2href.get(id);
             res.add(new File(this.currOpf.getParentFile(), href));
         }
         return res;
@@ -302,7 +313,7 @@ public class Shana {
     /**
      * 获取用到的图片、样式等资源文件, 并修改 opf 的 manifest 标签
      */
-    private Set<File> getUsedResource() throws IOException, DocumentException {
+    private Set<File> getUsedResource() throws IOException {
         Set<File> res = new HashSet<>();
         Set<String> fileNames = new HashSet<>();
 
@@ -329,7 +340,7 @@ public class Shana {
         idSet.add(eleSpine.attributeValue(R.TOC));
 
         // 封面不删
-        Optional<String> coverId = getCoverId(this.currOpf);
+        Optional<String> coverId = getCoverId(this.currOpfDoc);
         coverId.ifPresent(idSet::add);
 
         // 修改xml
@@ -356,9 +367,9 @@ public class Shana {
     }
 
 
-    private String findIdByHref(String href, Map<String, String> idHref) {
-        Set<Map.Entry<String, String>> entSet = idHref.entrySet();
-        href = removeAnchor(href);
+    private String findIdByHref(String href) {
+        Set<Map.Entry<String, String>> entSet = this.id2href.entrySet();
+        href = Strings.removeAnchor(href);
         for (Map.Entry<String, String> ent : entSet) {
             // TODO: 若opf于ncx不在同一目录下, 可能会有bug
             if (href.equals(ent.getValue())) {
@@ -384,9 +395,8 @@ public class Shana {
     /**
      * 从 meta 标签及 item 标签中获取封面的 itemId
      */
-    private static Optional<String> getCoverId(File opf) throws DocumentException {
-        Document doc = new SAXReader().read(opf);
-        return doc.getRootElement()
+    private static Optional<String> getCoverId(Document opfDoc) {
+        return opfDoc.getRootElement()
                 .element(R.METADATA)
                 .elements(R.META)
                 .stream()
@@ -398,14 +408,14 @@ public class Shana {
     /**
      * 同上
      */
-    private static Optional<File> getCoverFile(File opf) throws DocumentException {
-        Optional<String> opt = getCoverId(opf);
+    private static Optional<File> getCoverFile(Document opfDoc, File opf) {
+        Optional<String> opt = getCoverId(opfDoc);
         if (opt.isEmpty()) {
             return Optional.empty();
         }
         String coverId = opt.get();
-        Document doc = new SAXReader().read(opf);
-        Optional<String> opt2 = doc.getRootElement()
+
+        Optional<String> opt2 = opfDoc.getRootElement()
                 .element(R.MANIFEST)
                 .elements(R.ITEM)
                 .stream()
@@ -430,11 +440,12 @@ public class Shana {
     }
 
     /**
-     * 尝试在顶级目录指向的页面中, 找到img标签, 若有, 则设置新的封面
+     * 尝试在顶级目录指向的页面中, 找到img标签, 若有(并仅有一个), 则设置新的封面
+     * TODO: 需修改
      */
     private void tryToSetCover(Element pointEle) throws IOException {
         Pair<String, String> pair = getTextAndSrc(pointEle);
-        File file = new File(this.currNcx.getParentFile(), removeAnchor(pair.getRight()));
+        File file = new File(this.currNcx.getParentFile(), Strings.removeAnchor(pair.getRight()));
         String con = Files.readFileToString(file, StandardCharsets.UTF_8);
         Matcher mat = IMG_PTN.matcher(con);
         Matcher mat2 = IMG_PTN2.matcher(con);
@@ -452,6 +463,42 @@ public class Shana {
         // 覆盖原封面
         Files.copyFile(image, this.currCover);
         System.out.println("reset cover");
+    }
+
+    /**
+     * 若该书的 HTML 中有不属于该书的内容(即多个子书共用了一个 HTML 文件), 则删掉
+     */
+    private void cutExcessHtml() {
+        Element curr = null;
+        Element next = null;
+        for (int i = 0; i < this.bookPoints.size() - 1; i++) {
+            Element poi = this.bookPoints.get(i);
+            if (getTextAndSrc(poi).getLeft().equals(this.currBookName)) {
+                curr = poi;
+                next = this.bookPoints.get(i + 1);
+                break;
+            }
+        }
+        if (curr == null || next == null) {
+            return;
+        }
+        Pair<String, String> pair1 = getTextAndSrc(curr);
+        Pair<String, String> pair2 = getTextAndSrc(next);
+        // 删之前的
+        String href = pair1.getRight();
+        if (href.contains("#")) {
+            String anchor = Strings.getAnchor(href);
+            File htmlFile = new File(this.currOpf.getParentFile(), Strings.removeAnchor(href));
+            Jsoups.cutPrev(htmlFile, anchor);
+        }
+
+        // 删之后的
+        href = pair2.getRight();
+        if (href.contains("#")) {
+            String anchor = Strings.getAnchor(href);
+            File htmlFile = new File(this.currOpf.getParentFile(), Strings.removeAnchor(href));
+            Jsoups.cutNext(htmlFile, anchor);
+        }
     }
 
     /**
@@ -491,7 +538,17 @@ public class Shana {
         throw new RuntimeException("未发现 toc.ncx 文件");
     }
 
-    public static String removeAnchor(String href) {
-        return href.replaceAll("(.*)#.*", "$1");
+
+    /**
+     * 返回 id 到 href 的映射关系, href 是相对 opf 文件的相对路径
+     */
+    public static Map<String, String> getIdHrefMap(Document opfDoc) {
+        Element root = opfDoc.getRootElement();
+        Element eleManifest = root.element(R.MANIFEST);
+        return eleManifest.elements(R.ITEM)
+                .stream()
+                .collect(Collectors.toMap(v -> v.attributeValue(R.ID), v -> v.attributeValue(R.HREF)));
     }
+
+
 }

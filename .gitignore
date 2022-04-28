@@ -48,4 +48,5 @@ selenium-debug.log
 
 package-lock.json
 yarn.lock
+dependency-reduced-pom.xml
 

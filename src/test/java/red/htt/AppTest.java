@@ -10,10 +10,7 @@ public class AppTest {
     @Test
     public void yui() throws Exception {
         // String[] args = {
-        //         "--help",
-        //         "-f", "D:/OneDrive/Books/古籍/李清照集笺注 - 李清照 - 上海古籍出版社 - 中国古典文学丛书.epub",
-        //         "-lv", "1",
-        //         "-o", "C:/Users/win10/Desktop"
+        //         "-f", "C:/Users/win10/Desktop/钱穆国学作品集 - 钱穆 - 九州出版社 - 錢穆先生全集.epub",
         // };
         // App.main(args);
     }
