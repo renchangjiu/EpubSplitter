@@ -9,14 +9,11 @@ import org.dom4j.Document;
 import org.dom4j.DocumentException;
 import org.dom4j.Element;
 import org.dom4j.io.SAXReader;
-import org.jsoup.Jsoup;
-import red.htt.util.Files;
-import red.htt.util.Jsoups;
-import red.htt.util.Nullable;
-import red.htt.util.Strings;
+import red.htt.util.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -52,7 +49,7 @@ public class Shana {
      * 在 opf 文件中, itemId 到 href 的映射关系
      */
     private Map<String, String> id2href;
-
+    private List<Element> bookPoints;
     private String currBookName;
 
     /**
@@ -70,8 +67,7 @@ public class Shana {
 
     private Document currOpfDoc;
     private Document currNcxDoc;
-
-    private List<Element> bookPoints;
+    private Element currBookPoint;
 
     /**
      * @param epubFile                epub file full path
@@ -115,7 +111,7 @@ public class Shana {
     /**
      * 根据 toc.ncx, 以及指定的目录层级, 获取新书的目录节点
      */
-    private List<Element> getNewBookPoints() throws DocumentException {
+    private List<Element> getNewBookPoints() {
         System.out.printf("正在解析目录, 指定的目录提取层级为: %d%n", this.catalogLevel);
         List<Element> res = new ArrayList<>();
         List<String> names = new ArrayList<>();
@@ -131,7 +127,7 @@ public class Shana {
                 queue.addAll(list);
                 if (list.isEmpty() || level == this.catalogLevel) {
                     res.add(pop);
-                    names.add(getTextAndSrc(pop).getLeft());
+                    names.add(Doms.getTextAndSrc(pop).getLeft());
                 }
             }
         }
@@ -146,6 +142,7 @@ public class Shana {
      * 开始操作
      */
     private void doOneBook(Element ncxPoint) throws IOException, DocumentException {
+        this.currBookPoint = ncxPoint;
         // 创建新书的目录, 并复制必要的文件(opf, ncx...etc)
         this.currBookName = getNewBookName(ncxPoint);
         this.currRootDir = new File(this.rootDir.getParentFile(), this.currBookName);
@@ -226,7 +223,7 @@ public class Shana {
 
 
     private String getNewBookName(Element elePoint) {
-        return getTextAndSrc(elePoint).getLeft();
+        return Doms.getTextAndSrc(elePoint).getLeft();
     }
 
     private Element findLastNavPoint(Element element) {
@@ -249,8 +246,8 @@ public class Shana {
         Element root = this.currOpfDoc.getRootElement();
         Element eleManifest = root.element(R.MANIFEST);
 
-        Pair<String, String> pari1 = getTextAndSrc(start);
-        Pair<String, String> pari2 = getTextAndSrc(end);
+        Pair<String, String> pari1 = Doms.getTextAndSrc(start);
+        Pair<String, String> pari2 = Doms.getTextAndSrc(end);
         String idStart = this.findIdByHref(pari1.getRight());
         String idEnd = this.findIdByHref(pari2.getRight());
         Element eleSpine = root.element(R.SPINE);
@@ -357,15 +354,6 @@ public class Shana {
         return res;
     }
 
-    /**
-     * left: text, right: src.
-     */
-    private static Pair<String, String> getTextAndSrc(Element pointEle) {
-        String text = pointEle.element(R.NAV_LABEL).elementTextTrim(R.TEXT);
-        String src = pointEle.element(R.CONTENT).attributeValue(R.SRC);
-        return Pair.of(text, src);
-    }
-
 
     private String findIdByHref(String href) {
         Set<Map.Entry<String, String>> entSet = this.id2href.entrySet();
@@ -440,26 +428,17 @@ public class Shana {
     }
 
     /**
-     * 尝试在顶级目录指向的页面中, 找到img标签, 若有(并仅有一个), 则设置新的封面
-     * TODO: 需修改
+     * 尝试在顶级目录指向的页面中, 找到img标签, 则设置新的封面
      */
     private void tryToSetCover(Element pointEle) throws IOException {
-        Pair<String, String> pair = getTextAndSrc(pointEle);
+        Pair<String, String> pair = Doms.getTextAndSrc(pointEle);
         File file = new File(this.currNcx.getParentFile(), Strings.removeAnchor(pair.getRight()));
-        String con = Files.readFileToString(file, StandardCharsets.UTF_8);
-        Matcher mat = IMG_PTN.matcher(con);
-        Matcher mat2 = IMG_PTN2.matcher(con);
-        String href = null;
-        if (mat.find()) {
-            href = mat.group(1);
-        }
-        if (mat2.find()) {
-            href = mat2.group(1);
-        }
-        if (Strings.isEmpty(href)) {
+        Optional<String> opt = Jsoups.getCoverHref(file);
+        if (opt.isEmpty()) {
             return;
         }
-        File image = new File(file.getParentFile(), href);
+
+        File image = new File(file.getParentFile(), opt.get());
         // 覆盖原封面
         Files.copyFile(image, this.currCover);
         System.out.println("reset cover");
@@ -469,35 +448,39 @@ public class Shana {
      * 若该书的 HTML 中有不属于该书的内容(即多个子书共用了一个 HTML 文件), 则删掉
      */
     private void cutExcessHtml() {
-        Element curr = null;
+        int idx = this.bookPoints.indexOf(this.currBookPoint);
+        Element curr = this.bookPoints.get(idx);
+        Element prev = null;
         Element next = null;
-        for (int i = 0; i < this.bookPoints.size() - 1; i++) {
-            Element poi = this.bookPoints.get(i);
-            if (getTextAndSrc(poi).getLeft().equals(this.currBookName)) {
-                curr = poi;
-                next = this.bookPoints.get(i + 1);
-                break;
-            }
-        }
-        if (curr == null || next == null) {
-            return;
-        }
-        Pair<String, String> pair1 = getTextAndSrc(curr);
-        Pair<String, String> pair2 = getTextAndSrc(next);
-        // 删之前的
-        String href = pair1.getRight();
-        if (href.contains("#")) {
-            String anchor = Strings.getAnchor(href);
-            File htmlFile = new File(this.currOpf.getParentFile(), Strings.removeAnchor(href));
-            Jsoups.cutPrev(htmlFile, anchor);
-        }
 
-        // 删之后的
-        href = pair2.getRight();
-        if (href.contains("#")) {
-            String anchor = Strings.getAnchor(href);
-            File htmlFile = new File(this.currOpf.getParentFile(), Strings.removeAnchor(href));
-            Jsoups.cutNext(htmlFile, anchor);
+        String anchor = Strings.getAnchor(Doms.getTextAndSrc(curr).getRight());
+        File file = Doms.getRealFile(this.currOpf, curr);
+        if (idx == 0) {
+            // 第一本
+            next = this.bookPoints.get(1);
+            if (Doms.hasSameHtml(curr, next)) {
+                String nextAnchor = Strings.getAnchor(Doms.getTextAndSrc(next).getRight());
+                File nextFile = Doms.getRealFile(this.currOpf, next);
+                Jsoups.cutNext(nextFile, nextAnchor);
+            }
+        } else if (idx == this.bookPoints.size() - 1) {
+            // 最后一本
+            prev = this.bookPoints.get(idx - 1);
+            if (Doms.hasSameHtml(curr, prev)) {
+                Jsoups.cutPrev(file, anchor);
+            }
+        } else {
+            // 中间的
+            prev = this.bookPoints.get(idx - 1);
+            next = this.bookPoints.get(idx + 1);
+            if (Doms.hasSameHtml(curr, prev)) {
+                Jsoups.cutPrev(file, anchor);
+            }
+            if (Doms.hasSameHtml(curr, next)) {
+                String nextAnchor = Strings.getAnchor(Doms.getTextAndSrc(next).getRight());
+                File nextFile = Doms.getRealFile(this.currOpf, next);
+                Jsoups.cutNext(nextFile, nextAnchor);
+            }
         }
     }
 

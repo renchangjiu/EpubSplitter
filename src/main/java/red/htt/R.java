@@ -27,4 +27,7 @@ public interface R {
     String TOC = "toc";
     String NAME = "name";
     String CALIBRE_TITLE_SORT = "calibre:title_sort";
+    String IMG = "img";
+    String IMAGE = "image";
+    String XLINK_HREF = "xlink:href";
 }

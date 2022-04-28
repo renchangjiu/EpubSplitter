@@ -68,6 +68,8 @@ public class App {
             String out = cli.getOptionValue("o");
             if (Commons.isRelativePath(out)) {
                 outputDir = new File(Commons.getCurrentDir(), out);
+            } else {
+                outputDir = new File(out);
             }
         }
 

@@ -4,15 +4,56 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import red.htt.R;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 /**
  * @author yui
  */
 public class Jsoups {
+    /**
+     * 尝试从HTML中获取封面.
+     * 规则: 若在第一个图片标签之前, 没有出现文本, 则认为该图片是封面
+     */
+    public static Optional<String> getCoverHref(File html) {
+        try {
+            Document doc = Jsoup.parse(html, StandardCharsets.UTF_8.name());
+            Elements elements = doc.body().getAllElements();
+            elements.remove(0);
+            int imgTagIdx = -1;
+            for (int i = 0; i < elements.size(); i++) {
+                Element ele = elements.get(i);
+                if (Strings.equalsAny(ele.tagName(), R.IMG, R.IMAGE)) {
+                    imgTagIdx = i;
+                    break;
+                }
+            }
+            if (imgTagIdx == -1) {
+                return Optional.empty();
+            }
+            for (int i = 0; i < imgTagIdx; i++) {
+                Element ele = elements.get(i);
+                if (Strings.isNotBlank(ele.text())) {
+                    return Optional.empty();
+                }
+            }
+            Element ele = elements.get(imgTagIdx);
+            if (ele.tagName().equals(R.IMG)) {
+                return Optional.of(ele.attr(R.SRC));
+            }
+            if (ele.tagName().equals(R.IMAGE)) {
+                return Optional.of(ele.attr(R.XLINK_HREF));
+            }
+            return Optional.empty();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public static void cutPrev(File html, String tagId) {
         cut(html, tagId, true);
     }
@@ -74,4 +115,5 @@ public class Jsoups {
             System.out.println("\t" + e.getMessage());
         }
     }
+
 }
