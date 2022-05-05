@@ -55,6 +55,10 @@ public class Doms {
         return Pair.of(text, src);
     }
 
+    public static String getText(Element pointEle) {
+        return pointEle.element(R.NAV_LABEL).elementTextTrim(R.TEXT);
+    }
+
     /**
      * 获取 point 所指向文件的实际位置
      */

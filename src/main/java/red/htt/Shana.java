@@ -209,7 +209,16 @@ public class Shana {
      * 压缩新书
      */
     private void compress() throws IOException {
-        File file = new File(this.outputDir, this.currBookName + ".epub");
+        String filename = this.currBookName;
+        // 若节点名有重复的
+        for (Element point : bookPoints) {
+            String text = Doms.getText(point);
+            if (text.equals(Doms.getText(this.currBookPoint)) && !point.equals(this.currBookPoint)) {
+                filename = text + String.format("[%d]", this.bookPoints.indexOf(currBookPoint) + 1);
+                break;
+            }
+        }
+        File file = new File(this.outputDir, filename + ".epub");
         if (file.exists()) {
             file.delete();
         }
