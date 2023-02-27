@@ -43,15 +43,33 @@ public class Jsoups {
             }
             Element ele = elements.get(imgTagIdx);
             if (ele.tagName().equals(R.IMG)) {
-                return Optional.of(ele.attr(R.SRC));
+                Optional<String> opt = getImageSrc(ele);
+                if (opt.isPresent()) {
+                    return opt;
+                }
             }
             if (ele.tagName().equals(R.IMAGE)) {
-                return Optional.of(ele.attr(R.XLINK_HREF));
+                Optional<String> opt = getImageSrc(ele);
+                if (opt.isPresent()) {
+                    return opt;
+                }
             }
             return Optional.empty();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static Optional<String> getImageSrc(Element ele) {
+        String src1 = ele.attr(R.SRC);
+        if (Strings.isNotBlank(src1)) {
+            return Optional.of(src1);
+        }
+        String src2 = ele.attr(R.XLINK_HREF);
+        if (Strings.isNotBlank(src2)) {
+            return Optional.of(src2);
+        }
+        return Optional.empty();
     }
 
     public static void cutPrev(File html, String tagId) {
