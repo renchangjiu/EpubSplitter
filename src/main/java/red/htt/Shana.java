@@ -306,12 +306,13 @@ public class Shana {
         }
     }
 
-    private static final Pattern IMG_PTN = Pattern.compile("<img.*?src=\"(.*?)\".*?/>");
-    private static final Pattern IMG_PTN2 = Pattern.compile("<image.*?xlink:href=\"(.*?)\".*?/>");
+
 
     private static final Pattern[] PTNS = new Pattern[]{
-            IMG_PTN,
-            IMG_PTN2,
+            Pattern.compile("<img.*?src=\"(.*?)\".*?/>"),
+            Pattern.compile("<img.*?xlink:href=\"(.*?)\".*?/>"),
+            Pattern.compile("<image.*?xlink:href=\"(.*?)\".*?/>"),
+            Pattern.compile("<image.*?xlink:href=\"(.*?)\".*?></image>"),
             Pattern.compile("<link.*?href=\"(.*?)\".*?/>"),
 
     };
@@ -449,7 +450,7 @@ public class Shana {
 
         File image = new File(file.getParentFile(), opt.get());
         // 覆盖原封面
-        Files.copyFile(image, this.currCover);
+        Files.copyFile(image.getCanonicalFile(), this.currCover);
         System.out.println("reset cover");
     }
 
