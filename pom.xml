@@ -6,7 +6,7 @@
 
     <groupId>red.htt</groupId>
     <artifactId>splitter</artifactId>
-    <version>1.1</version>
+    <version>1.2.1</version>
 
     <name>EpubSplitter</name>
 
@@ -23,7 +23,7 @@
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
-            <version>4.11</version>
+            <version>4.13.2</version>
             <scope>test</scope>
         </dependency>
         <dependency>
